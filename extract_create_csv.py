@@ -6,25 +6,27 @@ This script automates the process of scraping recipe links from a website and ex
 Modules Used:
 - selenium: For web scraping and browser automation.
 - csv: For writing data to CSV files.
-- datetime: For timestamping the load date.
+- datetime: For timestamping the load date and managing page ranges.
 - os: For file and directory operations.
 
 Functions:
 - scrape_recipes(): Scrapes recipe links from the specified pages of the website and stores them in a global list.
 - extract_recipe_data(recipe_url): Extracts the title, ingredients, and instructions from a given recipe URL.
 - get_batch_number(): Manages and returns the current batch number by incrementing it from a persistent file.
+- get_page_range_for_today(): Determines the range of pages to process based on the current date.
 - process_links(): Processes each collected recipe link, extracts the recipe data, and writes the results to a CSV file with additional metadata.
 
 Usage:
 1. Ensure that the path to the chromedriver executable is correctly set in the script.
-2. Run the script to start scraping recipes from the website.
-3. The script will collect links from the first three pages, extract recipe details, and save them to 'recipes.csv'.
+2. Schedule the script to run daily using a task scheduler or cron job.
+3. The script will collect links from 2 pages per day, extract recipe details, and append them to 'recipes.csv'.
 4. The CSV file will include columns for the recipe title, ingredients, instructions, load date, and batch number.
 
 Notes:
 - The script uses a hardcoded path to the chromedriver executable; ensure this path is correct for your setup.
 - The batch number is stored in 'batch_number.txt' and is incremented with each script run.
-- The 'recipes.csv' file will be overwritten with each run, so previous data will be lost unless saved elsewhere.
+- The 'recipes.csv' file will be appended to with each run, preserving data from previous days.
+- This script is attached to a task scheduler in Windows (see .bat file as execution script) which will run every 12AM UTC
 
 Dependencies:
 - Selenium WebDriver
@@ -34,6 +36,7 @@ Author: Jayson Roque
 Date: 2024-08-03
 """
 
+from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -43,12 +46,12 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 import time
 import csv
+import os
 
 # Global variable to store recipe links
 all_recipes_links = []
 
 # Setup Chrome options
-# Didn't use headless as it seems to cause CORS Policy issue
 chrome_options = Options()
 chrome_options.add_argument("start-maximized")
 chrome_options.add_argument("--ignore-certificate-errors")
@@ -57,18 +60,17 @@ chrome_options.add_argument("--disable-gpu")
 chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
 chrome_options.add_experimental_option('useAutomationExtension', False)
 
-# Setting up my WebDriver
-service = Service(r'C:/Users/roque/Documents/chromedriver-win64/chromedriver.exe') 
+# Set up the WebDriver
+service = Service(r'C:/Users/roque/Documents/chromedriver-win64/chromedriver.exe')  
 driver = webdriver.Chrome(service=service, options=chrome_options)
 
-def scrape_recipes():
+def scrape_recipes(start_page, end_page):
     global all_recipes_links  # Use the global variable
     all_recipes_links = []  # Clear the list before scraping
     base_url = 'https://panlasangpinoy.com/recipes/'
-    total_pages = 223  # Total number of pages to scrape, site uses pagination
 
     try:
-        for page in range(1, total_pages + 1):
+        for page in range(start_page, end_page + 1):
             page_url = base_url if page == 1 else f"{base_url}page/{page}/"
             driver.get(page_url)
 
@@ -129,8 +131,61 @@ def extract_recipe_data(recipe_url):
         print(f'An error occurred while processing {recipe_url}: {e}')
         return None, None, None
 
+def get_batch_number():
+    batch_file = 'batch_number.txt'
+    if os.path.exists(batch_file):
+        with open(batch_file, 'r') as file:
+            batch_number = int(file.read().strip())
+    else:
+        batch_number = 0
+    batch_number += 1
+    with open(batch_file, 'w') as file:
+        file.write(str(batch_number))
+    return batch_number
+
+def get_page_range_for_today():
+    current_date = datetime.now().date()
+    pages_per_day = 2
+
+    # Check if the CSV file exists and has content
+    if os.path.exists('recipes.csv') and os.path.getsize('recipes.csv') > 0:
+        with open('recipes.csv', 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            last_load_date = None
+            for row in reader:
+                last_load_date = row['load_dte']
+            if last_load_date:
+                last_load_date = datetime.strptime(last_load_date, '%Y-%m-%d %H:%M:%S').date()
+            else:
+                last_load_date = current_date - timedelta(days=1)
+    else:
+        last_load_date = current_date - timedelta(days=1)
+
+    print(f"Last Load Date: {last_load_date}")
+
+    # Calculate the number of days elapsed
+    if last_load_date == datetime.now().date() - timedelta(days=1):
+        days_elapsed = 0
+    else:
+        days_elapsed = (current_date - last_load_date).days
+        print(f"Days Elapsed: {days_elapsed}")
+
+    # Ensure that on the first execution, we start from page 1
+    if days_elapsed == 0 and not os.path.exists('recipes.csv'):
+        start_page = 1
+    else:
+        start_page = days_elapsed * pages_per_day + 1
+
+    end_page = min(start_page + pages_per_day - 1, 223)  # Assuming there are 223 pages
+
+    print(f"Start Page: {start_page}, End Page: {end_page}")
+
+    return start_page, end_page
+
 def process_links():
     all_recipes = []
+    load_dte = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    batch_number = get_batch_number()
 
     for link in all_recipes_links:
         print(f'Processing link: {link}')
@@ -140,20 +195,27 @@ def process_links():
             all_recipes.append({
                 'Title': title,
                 'Ingredients': ingredients,
-                'Instructions': instructions
+                'Instructions': instructions,
+                'load_dte': load_dte,
+                'batch_number': batch_number
             })
 
     # Save collected results to CSV
-    with open('recipes.csv', 'w', newline='', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=['Title', 'Ingredients', 'Instructions'])
-        writer.writeheader()  # Write the header only once
+    file_exists = os.path.isfile('recipes.csv')
+    with open('recipes.csv', 'a', newline='', encoding='utf-8') as file:
+        fieldnames = ['Title', 'Ingredients', 'Instructions', 'load_dte', 'batch_number']
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()  # Write the header only once
         writer.writerows(all_recipes)
     
     driver.quit()
 
+# Determine the range of pages to process today
+start_page, end_page = get_page_range_for_today()
+
 # Run the scraping function to collect links
-scrape_recipes()
+scrape_recipes(start_page, end_page)
 
 # Run the processing function to extract data from the collected links
 process_links()
-
