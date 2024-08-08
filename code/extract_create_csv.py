@@ -48,7 +48,7 @@ import time
 import csv
 import os
 
-# Global variable to store recipe links
+# Global variable to store recipe links and their page numbers
 all_recipes_links = []
 
 # Setup Chrome options
@@ -61,7 +61,7 @@ chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
 chrome_options.add_experimental_option('useAutomationExtension', False)
 
 # Set up the WebDriver
-service = Service(r'C:/Users/roque/Documents/chromedriver-win64/chromedriver.exe')  
+service = Service(r'C:/Users/roque/Documents/chromedriver-win64/chromedriver.exe')  # This is the path of my own chromedriver, make sure to change it appropriately.
 driver = webdriver.Chrome(service=service, options=chrome_options)
 
 def scrape_recipes(start_page, end_page):
@@ -83,11 +83,11 @@ def scrape_recipes(start_page, end_page):
                 # Find all links with class "entry-title-link" within the specified div
                 recipe_links = content_div.find_elements(By.XPATH, './/a[@class="entry-title-link"]')
                 
-                # Extract the href attributes
+                # Extract the href attributes and store page number
                 for link in recipe_links:
                     try:
                         href = link.get_attribute('href')
-                        all_recipes_links.append(href)
+                        all_recipes_links.append((href, page))  # Store the link and page number as a tuple
                     except StaleElementReferenceException:
                         # Handle the case where the element becomes stale
                         print(f"StaleElementReferenceException while processing link on page {page}")
@@ -128,11 +128,11 @@ def extract_recipe_data(recipe_url):
         return title, ingredients, instructions
 
     except Exception as e:
-        print(f'An error occurred while processing {recipe_url}: {e}')
+        print(f'An error occurred while processing {recipe_url}: No recipe or ingredients found!')
         return None, None, None
 
 def get_batch_number():
-    batch_file = 'batch_number.txt'
+    batch_file = 'batch_number/batch_number.txt'
     if os.path.exists(batch_file):
         with open(batch_file, 'r') as file:
             batch_number = int(file.read().strip())
@@ -148,30 +148,27 @@ def get_page_range_for_today():
     pages_per_day = 2
 
     # Check if the CSV file exists and has content
-    if os.path.exists('recipes.csv') and os.path.getsize('recipes.csv') > 0:
-        with open('recipes.csv', 'r', encoding='utf-8') as file:
+    if os.path.exists('results/recipes.csv') and os.path.getsize('results/recipes.csv') > 0:
+        with open('results/recipes.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            last_load_date = None
+            last_load_date = []
             for row in reader:
                 last_load_date = row['load_dte']
             if last_load_date:
                 last_load_date = datetime.strptime(last_load_date, '%Y-%m-%d %H:%M:%S').date()
+                days_elapsed = (current_date - last_load_date).days
             else:
                 last_load_date = current_date - timedelta(days=1)
+                days_elapsed = 0
     else:
         last_load_date = current_date - timedelta(days=1)
+        days_elapsed = 0
 
     print(f"Last Load Date: {last_load_date}")
-
-    # Calculate the number of days elapsed
-    if last_load_date == datetime.now().date() - timedelta(days=1):
-        days_elapsed = 0
-    else:
-        days_elapsed = (current_date - last_load_date).days
-        print(f"Days Elapsed: {days_elapsed}")
+    print(f"Days Elapsed: {days_elapsed}")
 
     # Ensure that on the first execution, we start from page 1
-    if days_elapsed == 0 and not os.path.exists('recipes.csv'):
+    if days_elapsed == 0 and not os.path.exists('results/recipes.csv'):
         start_page = 1
     else:
         start_page = days_elapsed * pages_per_day + 1
@@ -187,23 +184,24 @@ def process_links():
     load_dte = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     batch_number = get_batch_number()
 
-    for link in all_recipes_links:
+    for link, page_number in all_recipes_links:  # Unpack the link and page number
         print(f'Processing link: {link}')
         title, ingredients, instructions = extract_recipe_data(link)
         
         if title and ingredients and instructions:
             all_recipes.append({
-                'Title': title,
-                'Ingredients': ingredients,
-                'Instructions': instructions,
+                'title': title,
+                'ingredients': ingredients,
+                'instructions': instructions,
                 'load_dte': load_dte,
-                'batch_number': batch_number
+                'batch_number': batch_number,
+                'page_number': page_number  
             })
 
     # Save collected results to CSV
-    file_exists = os.path.isfile('recipes.csv')
-    with open('recipes.csv', 'a', newline='', encoding='utf-8') as file:
-        fieldnames = ['Title', 'Ingredients', 'Instructions', 'load_dte', 'batch_number']
+    file_exists = os.path.isfile('results/recipes.csv')
+    with open('results/recipes.csv', 'a', newline='', encoding='utf-8') as file:
+        fieldnames = ['title', 'ingredients', 'instructions', 'load_dte', 'batch_number', 'page_number']
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()  # Write the header only once
