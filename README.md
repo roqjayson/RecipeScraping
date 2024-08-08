@@ -12,6 +12,7 @@ Here is a conceptual data flow diagram (DFD) for the solution:
    - **Source**: [Panlasang Pinoy](https://panlasangpinoy.com/)
    - **Process**: Web Scraping Script using Selenium in Python
    - **Output**: Raw Recipe Data in CSV Files
+   - **Notes**: script does not support data deduplication in recipe.csv
 
 2. **Data Storage**
    - **Process**: CSV File Management
