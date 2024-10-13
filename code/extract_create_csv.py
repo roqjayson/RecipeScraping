@@ -5,7 +5,7 @@ This script automates the process of scraping recipe links from a website and ex
 
 Modules Used:
 - selenium: For web scraping and browser automation.
-- csv: For writing data to CSV files.
+- csv: For read/writing data to CSV files.
 - datetime: For timestamping the load date and managing page ranges.
 - os: For file and directory operations.
 
@@ -36,7 +36,7 @@ Author: Jayson Roque
 Date: 2024-08-03
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -152,26 +152,20 @@ def get_page_range_for_today():
         with open('results/recipes.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             last_load_date = []
+            last_page_num = []
             for row in reader:
                 last_load_date = row['load_dte']
-            if last_load_date:
-                last_load_date = datetime.strptime(last_load_date, '%Y-%m-%d %H:%M:%S').date()
-                days_elapsed = (current_date - last_load_date).days
-            else:
-                last_load_date = current_date - timedelta(days=1)
-                days_elapsed = 0
+                last_page_num = row['page_number']
+            get_date = datetime.strptime(last_load_date, '%Y-%m-%d %H:%M:%S').date()
+            days_elapsed = (current_date - get_date).days
+            start_page = int(last_page_num) + 1
     else:
-        last_load_date = current_date - timedelta(days=1)
+        last_load_date = current_date
         days_elapsed = 0
+        start_page = 1
 
     print(f"Last Load Date: {last_load_date}")
     print(f"Days Elapsed: {days_elapsed}")
-
-    # Ensure that on the first execution, we start from page 1
-    if days_elapsed == 0 and not os.path.exists('results/recipes.csv'):
-        start_page = 1
-    else:
-        start_page = days_elapsed * pages_per_day + 1
 
     end_page = min(start_page + pages_per_day - 1, 223)  # Assuming there are 223 pages
 
